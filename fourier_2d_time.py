@@ -64,9 +64,7 @@ class SpectralConv2d_fast(nn.Module):
         batchsize = x.shape[0]
         #Compute Fourier coeffcients up to factor of e^(- something constant)
         if self.fourier:
-            print(x.size())
             x_ft = torch.rfft(x, 2, normalized=True, onesided=True)
-            print(x_ft.size())
             # Multiply relevant Fourier modes
             out_ft = torch.zeros(batchsize, self.in_channels, x.size(-2), x.size(-1)//2 + 1, 2, device=x.device)
             out_ft[:, :, :self.modes1, :self.modes2] = \
@@ -114,6 +112,10 @@ class SimpleBlock2d(nn.Module):
         self.conv1 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2, self.modefunctions, self.fourier)
         self.conv2 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2, self.modefunctions, self.fourier)
         self.conv3 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2, self.modefunctions, self.fourier)
+        self.w0 = nn.Conv1d(self.width, self.width, 1)
+        self.w1 = nn.Conv1d(self.width, self.width, 1)
+        self.w2 = nn.Conv1d(self.width, self.width, 1)
+        self.w3 = nn.Conv1d(self.width, self.width, 1)
         self.bn0 = torch.nn.BatchNorm2d(self.width)
         self.bn1 = torch.nn.BatchNorm2d(self.width)
         self.bn2 = torch.nn.BatchNorm2d(self.width)
@@ -124,17 +126,27 @@ class SimpleBlock2d(nn.Module):
         self.fc2 = nn.Linear(128, 1)
 
     def forward(self, x):
+        batchsize = x.shape[0]
+        size_x, size_y = x.shape[1], x.shape[2]
 
         x = self.fc0(x)
         x = x.permute(0, 3, 1, 2)
 
-        x = self.conv0(x)
+        x1 = self.conv0(x)
+        x2 = self.w0(x.view(batchsize, self.width, -1)).view(batchsize, self.width, size_x, size_y)
+        x = self.bn0(x1 + x2)
         x = F.relu(x)
-        x = self.conv1(x)
+        x1 = self.conv1(x)
+        x2 = self.w1(x.view(batchsize, self.width, -1)).view(batchsize, self.width, size_x, size_y)
+        x = self.bn1(x1 + x2)
         x = F.relu(x)
-        x = self.conv2(x)
+        x1 = self.conv2(x)
+        x2 = self.w2(x.view(batchsize, self.width, -1)).view(batchsize, self.width, size_x, size_y)
+        x = self.bn2(x1 + x2)
         x = F.relu(x)
-        x = self.conv3(x)
+        x1 = self.conv3(x)
+        x2 = self.w3(x.view(batchsize, self.width, -1)).view(batchsize, self.width, size_x, size_y)
+        x = self.bn3(x1 + x2)
 
 
         x = x.permute(0, 2, 3, 1)
@@ -180,7 +192,7 @@ ntest = 200
 
 modes = 12
 width = 20
-fourier = 0
+fourier = 1
 
 batch_size = 4
 batch_size2 = batch_size
@@ -365,7 +377,6 @@ scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy(), 'u': te
 #          index = index + 1
 
 # scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy()})
-
 
 
 
