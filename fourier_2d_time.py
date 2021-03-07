@@ -39,7 +39,7 @@ def compl_mul2d(a, b):
 ################################################################
 
 class SpectralConv2d_fast(nn.Module):
-    def __init__(self, in_channels, out_channels, modes1, modes2):
+    def __init__(self, in_channels, out_channels, modes1, modes2, modefunctions, fourier):
         super(SpectralConv2d_fast, self).__init__()
 
         """
@@ -50,29 +50,43 @@ class SpectralConv2d_fast(nn.Module):
         self.out_channels = out_channels
         self.modes1 = modes1 #Number of Fourier modes to multiply, at most floor(N/2) + 1
         self.modes2 = modes2
+        self.modefunctions = modefunctions
+        self.fourier = fourier
 
         self.scale = (1 / (in_channels * out_channels))
-        self.weights1 = nn.Parameter(self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, 2))
-        self.weights2 = nn.Parameter(self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, 2))
-
+        if self.fourier:
+            self.weights1 = nn.Parameter(self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, 2))
+            self.weights2 = nn.Parameter(self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, 2))
+        else:
+            self.weights1 = nn.Parameter(self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2))
+            self.weights2 = nn.Parameter(self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2))
     def forward(self, x):
         batchsize = x.shape[0]
         #Compute Fourier coeffcients up to factor of e^(- something constant)
-        x_ft = torch.rfft(x, 2, normalized=True, onesided=True)
+        if self.fourier:
+            print(x.size())
+            x_ft = torch.rfft(x, 2, normalized=True, onesided=True)
+            print(x_ft.size())
+            # Multiply relevant Fourier modes
+            out_ft = torch.zeros(batchsize, self.in_channels, x.size(-2), x.size(-1)//2 + 1, 2, device=x.device)
+            out_ft[:, :, :self.modes1, :self.modes2] = \
+                compl_mul2d(x_ft[:, :, :self.modes1, :self.modes2], self.weights1)
+            out_ft[:, :, -self.modes1:, :self.modes2] = \
+                compl_mul2d(x_ft[:, :, -self.modes1:, :self.modes2], self.weights2)
 
-        # Multiply relevant Fourier modes
-        out_ft = torch.zeros(batchsize, self.in_channels, x.size(-2), x.size(-1)//2 + 1, 2, device=x.device)
-        out_ft[:, :, :self.modes1, :self.modes2] = \
-            compl_mul2d(x_ft[:, :, :self.modes1, :self.modes2], self.weights1)
-        out_ft[:, :, -self.modes1:, :self.modes2] = \
-            compl_mul2d(x_ft[:, :, -self.modes1:, :self.modes2], self.weights2)
-
-        #Return to physical space
-        x = torch.irfft(out_ft, 2, normalized=True, onesided=True, signal_sizes=(x.size(-2), x.size(-1)))
+            #Return to physical space
+            x = torch.irfft(out_ft, 2, normalized=True, onesided=True, signal_sizes=(x.size(-2), x.size(-1)))
+        else:
+            POD = torch.tensordot(modefunctions, x, dims = ([0, 1], [2, 3]))
+            #Apply model parameters to POD modes
+            
+            POD_out = POD
+            #Return to physical space
+            x = torch.tensordot(POD_out, modefunctions, dims = ([0], [2]))
         return x
 
 class SimpleBlock2d(nn.Module):
-    def __init__(self, modes1, modes2, width):
+    def __init__(self, modes1, modes2, width, modefunctions, fourier):
         super(SimpleBlock2d, self).__init__()
 
         """
@@ -91,17 +105,15 @@ class SimpleBlock2d(nn.Module):
         self.modes1 = modes1
         self.modes2 = modes2
         self.width = width
+        self.modefunctions = modefunctions
+        self.fourier = fourier
         self.fc0 = nn.Linear(12, self.width)
         # input channel is 12: the solution of the previous 10 timesteps + 2 locations (u(t-10, x, y), ..., u(t-1, x, y),  x, y)
 
-        self.conv0 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2)
-        self.conv1 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2)
-        self.conv2 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2)
-        self.conv3 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2)
-        self.w0 = nn.Conv1d(self.width, self.width, 1)
-        self.w1 = nn.Conv1d(self.width, self.width, 1)
-        self.w2 = nn.Conv1d(self.width, self.width, 1)
-        self.w3 = nn.Conv1d(self.width, self.width, 1)
+        self.conv0 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2, self.modefunctions, self.fourier)
+        self.conv1 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2, self.modefunctions, self.fourier)
+        self.conv2 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2, self.modefunctions, self.fourier)
+        self.conv3 = SpectralConv2d_fast(self.width, self.width, self.modes1, self.modes2, self.modefunctions, self.fourier)
         self.bn0 = torch.nn.BatchNorm2d(self.width)
         self.bn1 = torch.nn.BatchNorm2d(self.width)
         self.bn2 = torch.nn.BatchNorm2d(self.width)
@@ -112,27 +124,17 @@ class SimpleBlock2d(nn.Module):
         self.fc2 = nn.Linear(128, 1)
 
     def forward(self, x):
-        batchsize = x.shape[0]
-        size_x, size_y = x.shape[1], x.shape[2]
 
         x = self.fc0(x)
         x = x.permute(0, 3, 1, 2)
 
-        x1 = self.conv0(x)
-        x2 = self.w0(x.view(batchsize, self.width, -1)).view(batchsize, self.width, size_x, size_y)
-        x = self.bn0(x1 + x2)
+        x = self.conv0(x)
         x = F.relu(x)
-        x1 = self.conv1(x)
-        x2 = self.w1(x.view(batchsize, self.width, -1)).view(batchsize, self.width, size_x, size_y)
-        x = self.bn1(x1 + x2)
+        x = self.conv1(x)
         x = F.relu(x)
-        x1 = self.conv2(x)
-        x2 = self.w2(x.view(batchsize, self.width, -1)).view(batchsize, self.width, size_x, size_y)
-        x = self.bn2(x1 + x2)
+        x = self.conv2(x)
         x = F.relu(x)
-        x1 = self.conv3(x)
-        x2 = self.w3(x.view(batchsize, self.width, -1)).view(batchsize, self.width, size_x, size_y)
-        x = self.bn3(x1 + x2)
+        x = self.conv3(x)
 
 
         x = x.permute(0, 2, 3, 1)
@@ -142,14 +144,14 @@ class SimpleBlock2d(nn.Module):
         return x
 
 class Net2d(nn.Module):
-    def __init__(self, modes, width):
+    def __init__(self, modes, width, modefunctions, fourier):
         super(Net2d, self).__init__()
 
         """
         A wrapper function
         """
 
-        self.conv1 = SimpleBlock2d(modes, modes, width)
+        self.conv1 = SimpleBlock2d(modes, modes, width, modefunctions, fourier)
 
 
     def forward(self, x):
@@ -168,19 +170,22 @@ class Net2d(nn.Module):
 ################################################################
 # configs
 ################################################################
-TRAIN_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
-TEST_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
+#TRAIN_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
+#TEST_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
+TRAIN_PATH = 'data/Vortex_dynamics_64_64_grid.mat'
+TEST_PATH = 'data/Vortex_dynamics_64_64_grid.mat'
 
 ntrain = 1000
 ntest = 200
 
 modes = 12
 width = 20
+fourier = 0
 
-batch_size = 1
+batch_size = 4
 batch_size2 = batch_size
 
-epochs = 500
+epochs = 10
 learning_rate = 0.0025
 scheduler_step = 100
 scheduler_gamma = 0.5
@@ -192,6 +197,8 @@ path_model = 'model/'+path
 path_train_err = 'results/'+path+'train.txt'
 path_test_err = 'results/'+path+'test.txt'
 path_image = 'image/'+path
+
+print('Will save model to:', path_model)
 
 runtime = np.zeros(2, )
 t1 = default_timer()
@@ -213,6 +220,8 @@ train_u = reader.read_field('u')[:ntrain,::sub,::sub,T_in:T+T_in]
 reader = MatReader(TEST_PATH)
 test_a = reader.read_field('u')[-ntest:,::sub,::sub,:T_in]
 test_u = reader.read_field('u')[-ntest:,::sub,::sub,T_in:T+T_in]
+modefunctions = reader.read_field('Modetensorabridged')
+modefunctions = modefunctions.to(device='cuda')
 
 print(train_u.shape)
 print(test_u.shape)
@@ -243,7 +252,7 @@ device = torch.device('cuda')
 # training and evaluation
 ################################################################
 
-model = Net2d(modes, width).cuda()
+model = Net2d(modes, width, modefunctions, fourier).cuda()
 # model = torch.load('model/ns_fourier_V100_N1000_ep100_m8_w20')
 
 print(model.count_params())
@@ -320,23 +329,42 @@ for ep in range(epochs):
 torch.save(model, path_model)
 
 
+# test
+test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(test_a, test_u), batch_size=1, shuffle=False)
 pred = torch.zeros(test_u.shape)
 index = 0
-test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(test_a, test_u), batch_size=1, shuffle=False)
 with torch.no_grad():
-     for x, y in test_loader:
-         test_l2 = 0;
-         x, y = x.cuda(), y.cuda()
+    test_l2 = 0
+    for x, y in test_loader:
+        x, y = x.cuda(), y.cuda()
 
-         out = model(x)
-         out = y_normalizer.decode(out)
-         pred[index] = out
+        out = model(x)
+        pred[index] = out
+        loss = myloss(out.view(1, -1), y.view(1, -1)).item()
+        test_l2 += loss
+        print(index, loss)
+        index = index + 1
+print(test_l2/ntest)
 
-         test_l2 += myloss(out.view(1, -1), y.view(1, -1)).item()
-         print(index, test_l2)
-         index = index + 1
+path = 'eval'
+scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy(), 'u': test_u.cpu().numpy()})
+# pred = torch.zeros(test_u.shape)
+# index = 0
+# test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(test_a, test_u), batch_size=1, shuffle=False)
+# with torch.no_grad():
+#      for x, y in test_loader:
+#          test_l2 = 0;
+#          x, y = x.cuda(), y.cuda()
 
-scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy()})
+#          out = model(x)
+#          #out = y_normalizer.decode(out)
+#          pred[index] = out
+
+#          test_l2 += myloss(out.view(1, -1), y.view(1, -1)).item()
+#          print(index, test_l2)
+#          index = index + 1
+
+# scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy()})
 
 
 
