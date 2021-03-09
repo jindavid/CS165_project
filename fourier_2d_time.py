@@ -66,8 +66,6 @@ class SpectralConv2d_fast(nn.Module):
             x_ft = torch.rfft(x, 2, normalized=True, onesided=True)
             # Multiply relevant Fourier modes
             out_ft = torch.zeros(batchsize, self.in_channels, x.size(-2), x.size(-1)//2 + 1, 2, device=x.device)
-            print(self.weights1.size())
-            print(x_ft[:, :, :self.modes1, :self.modes2].size())
             out_ft[:, :, :self.modes1, :self.modes2] = \
                 compl_mul2d(x_ft[:, :, :self.modes1, :self.modes2], self.weights1)
             out_ft[:, :, -self.modes1:, :self.modes2] = \
@@ -78,11 +76,12 @@ class SpectralConv2d_fast(nn.Module):
         else:
             POD = torch.tensordot(self.modefunctions[:,:,:self.modes1], x, dims = ([0, 1], [2, 3]))
             #Apply model parameters to POD modes. 
-            #TO DO: tensor multiply POD (12x4x20) with self.weights1 (20x20x12)
-            #to produce a 12x4x20 output!!!!! If it works, that should be it to complete the model!!!
-            print(POD.size())
-            print(self.weights1.size())
-            POD_out = torch.tensordot(POD)
+            POD_out = torch.zeros(POD.size(),device=x.device)
+            t1=default_timer()
+            for i in range(POD.size(0)):
+                POD_out[i,:,:] = torch.tensordot(POD[i,:,:],self.weights1[:,:,i], dims = ([1], [0]))
+            t2=default_timer()
+            print(t2-t1)
             #Return to physical space
             x = torch.tensordot(POD_out, self.modefunctions[:,:,:self.modes1], dims = ([0], [2]))
         return x
@@ -194,11 +193,11 @@ TEST_PATH = 'data/Vortex_dynamics_64_64_grid.mat'
 ntrain = 1000
 ntest = 200
 
-modes = 12
+modes = 24
 width = 20
 fourier = 0
 
-batch_size = 4
+batch_size = 5
 batch_size2 = batch_size
 
 epochs = 10
