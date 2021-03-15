@@ -77,11 +77,12 @@ class SpectralConv2d_fast(nn.Module):
             POD = torch.tensordot(self.modefunctions[:,:,:self.modes1], x, dims = ([0, 1], [2, 3]))
             #Apply model parameters to POD modes. 
             POD_out = torch.zeros(POD.size(),device=x.device)
-            t1=default_timer()
+            #t1=default_timer()
             for i in range(POD.size(0)):
                 POD_out[i,:,:] = torch.tensordot(POD[i,:,:],self.weights1[:,:,i], dims = ([1], [0]))
-            t2=default_timer()
-            print(t2-t1)
+            #t2=default_timer()
+            #print(t2-t1)
+            #POD_out=POD
             #Return to physical space
             x = torch.tensordot(POD_out, self.modefunctions[:,:,:self.modes1], dims = ([0], [2]))
         return x
@@ -193,14 +194,14 @@ TEST_PATH = 'data/Vortex_dynamics_64_64_grid.mat'
 ntrain = 1000
 ntest = 200
 
-modes = 24
+modes = 25
 width = 20
 fourier = 0
 
 batch_size = 5
 batch_size2 = batch_size
 
-epochs = 10
+epochs = 500
 learning_rate = 0.0025
 scheduler_step = 100
 scheduler_gamma = 0.5
@@ -380,7 +381,6 @@ scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy(), 'u': te
 #          index = index + 1
 
 # scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy()})
-
 
 
 
