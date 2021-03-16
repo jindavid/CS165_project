@@ -196,7 +196,7 @@ fourier = 0
 batch_size = 5
 batch_size2 = batch_size
 
-epochs = 500
+epochs = 2
 learning_rate = 0.001
 scheduler_step = 100
 scheduler_gamma = 0.5
@@ -217,7 +217,7 @@ t1 = default_timer()
 sub = 1
 S = 64
 T_in = 10
-T = 2
+T = 10
 step = 1
 
 ################################################################
@@ -231,11 +231,11 @@ train_u = reader.read_field('u')[:ntrain,::sub,::sub,T_in:T+T_in]
 reader = MatReader(TEST_PATH)
 test_a = reader.read_field('u')[-ntest:,::sub,::sub,:T_in]
 test_u = reader.read_field('u')[-ntest:,::sub,::sub,T_in:T+T_in]
+
 modefunctions = reader.read_field('Modetensor')
 modefunctions = modefunctions.to(device='cuda')
-
-print(train_u.shape)
-print(test_u.shape)
+print(test_a.size())
+print(test_u.size())
 assert (S == train_u.shape[-2])
 assert (T == train_u.shape[-1])
 
@@ -258,7 +258,8 @@ t2 = default_timer()
 
 print('preprocessing finished, time used:', t2-t1)
 device = torch.device('cuda')
-
+print(test_a.size())
+print(test_u.size())
 ################################################################
 # training and evaluation
 ################################################################
@@ -342,6 +343,7 @@ torch.save(model, path_model)
 
 # test
 test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(test_a, test_u), batch_size=1, shuffle=False)
+print(type(test_loader))
 pred = torch.zeros(test_u.shape)
 index = 0
 with torch.no_grad():
@@ -351,7 +353,7 @@ with torch.no_grad():
 
         out = model(x)
         pred[index] = out
-        loss = myloss(out.view(1, -1), y.view(1, -1)).item()
+        loss = myloss(out.view(1, -1), y[:,:,:,0].view(1, -1)).item()
         test_l2 += loss
         print(index, loss)
         index = index + 1
