@@ -121,8 +121,8 @@ class SimpleBlock2d(nn.Module):
         self.bn3 = torch.nn.BatchNorm2d(self.width)
 
 
-        self.fc1 = nn.Linear(self.width, 128)
-        self.fc2 = nn.Linear(128, 1)
+        self.fc1 = nn.Linear(self.width, 150)
+        self.fc2 = nn.Linear(150, 1)
 
     def forward(self, x):
         batchsize = x.shape[0]
@@ -183,13 +183,13 @@ class Net2d(nn.Module):
 ################################################################
 #TRAIN_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
 #TEST_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
-TRAIN_PATH = 'data/Vortex_dynamics_64_64_grid.mat'
-TEST_PATH = 'data/Vortex_dynamics_64_64_grid.mat'
+TRAIN_PATH = 'data/Vortex_dynamics_150_150_train.mat'
+TEST_PATH = 'data/Vortex_dynamics_150_150_test.mat'
 
-ntrain = 1000
-ntest = 200
+ntrain = 1296
+ntest = 256
 
-modes = 70
+modes = 5
 width = 20
 fourier = 0
 
@@ -215,9 +215,9 @@ runtime = np.zeros(2, )
 t1 = default_timer()
 
 sub = 1
-S = 64
+S = 150
 T_in = 10
-T = 10
+T = 1
 step = 1
 
 ################################################################
@@ -227,13 +227,16 @@ step = 1
 reader = MatReader(TRAIN_PATH)
 train_a = reader.read_field('u')[:ntrain,::sub,::sub,:T_in]
 train_u = reader.read_field('u')[:ntrain,::sub,::sub,T_in:T+T_in]
-
+modefunctions = reader.read_field('Modetensor')
+print(modefunctions.size())
+modefunctions = modefunctions.reshape(S,S,22500)
+print(modefunctions.size())
 reader = MatReader(TEST_PATH)
 test_a = reader.read_field('u')[-ntest:,::sub,::sub,:T_in]
 test_u = reader.read_field('u')[-ntest:,::sub,::sub,T_in:T+T_in]
 
-modefunctions = reader.read_field('Modetensor')
-modefunctions = modefunctions.to(device='cuda')
+
+modefunctions = modefunctions[:,:,:modes].to(device='cuda')
 print(test_a.size())
 print(test_u.size())
 assert (S == train_u.shape[-2])
