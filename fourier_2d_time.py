@@ -121,8 +121,8 @@ class SimpleBlock2d(nn.Module):
         self.bn3 = torch.nn.BatchNorm2d(self.width)
 
 
-        self.fc1 = nn.Linear(self.width, 150)
-        self.fc2 = nn.Linear(150, 1)
+        self.fc1 = nn.Linear(self.width, 128)
+        self.fc2 = nn.Linear(128, 1)
 
     def forward(self, x):
         batchsize = x.shape[0]
@@ -183,20 +183,20 @@ class Net2d(nn.Module):
 ################################################################
 #TRAIN_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
 #TEST_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
-TRAIN_PATH = 'data/Vortex_dynamics_150_150_train.mat'
-TEST_PATH = 'data/Vortex_dynamics_150_150_test.mat'
+TRAIN_PATH = 'data/Vortex_dynamics_64_64_train.mat'
+TEST_PATH = 'data/Vortex_dynamics_64_64_test.mat'
 
 ntrain = 1296
 ntest = 256
 
-modes = 5
+modes = 100
 width = 20
 fourier = 0
 
-batch_size = 5
+batch_size = 8
 batch_size2 = batch_size
 
-epochs = 2
+epochs = 500
 learning_rate = 0.001
 scheduler_step = 100
 scheduler_gamma = 0.5
@@ -215,9 +215,9 @@ runtime = np.zeros(2, )
 t1 = default_timer()
 
 sub = 1
-S = 150
+S = 64
 T_in = 10
-T = 1
+T = 2
 step = 1
 
 ################################################################
@@ -228,17 +228,17 @@ reader = MatReader(TRAIN_PATH)
 train_a = reader.read_field('u')[:ntrain,::sub,::sub,:T_in]
 train_u = reader.read_field('u')[:ntrain,::sub,::sub,T_in:T+T_in]
 modefunctions = reader.read_field('Modetensor')
-print(modefunctions.size())
-modefunctions = modefunctions.reshape(S,S,22500)
-print(modefunctions.size())
+#print(modefunctions.size())
+#modefunctions = modefunctions.reshape(S,S,4096)
+#print(modefunctions.size())
 reader = MatReader(TEST_PATH)
 test_a = reader.read_field('u')[-ntest:,::sub,::sub,:T_in]
 test_u = reader.read_field('u')[-ntest:,::sub,::sub,T_in:T+T_in]
 
 
 modefunctions = modefunctions[:,:,:modes].to(device='cuda')
-print(test_a.size())
-print(test_u.size())
+print(train_a.size())
+print(train_u.size())
 assert (S == train_u.shape[-2])
 assert (T == train_u.shape[-1])
 
@@ -271,7 +271,7 @@ model = Net2d(modes, width, modefunctions, fourier).cuda()
 # model = torch.load('model/ns_fourier_V100_N1000_ep100_m8_w20')
 
 print(model.count_params())
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-8)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
 
 
