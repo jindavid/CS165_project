@@ -183,15 +183,15 @@ class Net2d(nn.Module):
 ################################################################
 #TRAIN_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
 #TEST_PATH = 'data/NavierStokes_V1e-5_N1200_T20.mat'
-TRAIN_PATH = 'data/Vortex_dynamics_64_64_train.mat'
+TRAIN_PATH = 'data/Vortex_dynamics_64_64_train_2.mat'
 TEST_PATH = 'data/Vortex_dynamics_64_64_test.mat'
 
 ntrain = 1296
 ntest = 256
 
-modes = 100
+modes = 10
 width = 20
-fourier = 0
+fourier = 1
 
 batch_size = 8
 batch_size2 = batch_size
@@ -227,18 +227,25 @@ step = 1
 reader = MatReader(TRAIN_PATH)
 train_a = reader.read_field('u')[:ntrain,::sub,::sub,:T_in]
 train_u = reader.read_field('u')[:ntrain,::sub,::sub,T_in:T+T_in]
+print(train_a.size())
+print(train_u.size())
+mean = reader.read_field('Meantensor')
+mean = mean[np.newaxis,:,:,np.newaxis]
 modefunctions = reader.read_field('Modetensor')
-#print(modefunctions.size())
-#modefunctions = modefunctions.reshape(S,S,4096)
-#print(modefunctions.size())
+print(mean[np.newaxis,:,:,np.newaxis].size())
+
+train_a =train_a - mean;
+train_u = train_u - mean;
+
 reader = MatReader(TEST_PATH)
 test_a = reader.read_field('u')[-ntest:,::sub,::sub,:T_in]
 test_u = reader.read_field('u')[-ntest:,::sub,::sub,T_in:T+T_in]
 
+test_a =test_a - mean;
+test_u =test_u - mean;
 
 modefunctions = modefunctions[:,:,:modes].to(device='cuda')
-print(train_a.size())
-print(train_u.size())
+
 assert (S == train_u.shape[-2])
 assert (T == train_u.shape[-1])
 
@@ -353,16 +360,18 @@ with torch.no_grad():
     test_l2 = 0
     for x, y in test_loader:
         x, y = x.cuda(), y.cuda()
-
+        t1 = default_timer()
         out = model(x)
+        t2 = default_timer()
         pred[index] = out
         loss = myloss(out.view(1, -1), y[:,:,:,0].view(1, -1)).item()
         test_l2 += loss
         print(index, loss)
         index = index + 1
 print(test_l2/ntest)
+print(t2-t1)
 
-path = 'eval'
+path = 'eval_fourier'
 scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy(), 'u': test_u.cpu().numpy()})
 # pred = torch.zeros(test_u.shape)
 # index = 0
@@ -381,7 +390,5 @@ scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy(), 'u': te
 #          index = index + 1
 
 # scipy.io.savemat('pred/'+path+'.mat', mdict={'pred': pred.cpu().numpy()})
-
-
 
 
